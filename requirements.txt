@@ -1,6 +1,6 @@
 streamlit
 pandas
-gTTS
+pyttsx3
 SpeechRecognition
 fuzzywuzzy
 python-Levenshtein

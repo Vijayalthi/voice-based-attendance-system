@@ -1,5 +1,5 @@
 # voice_attendance_app.py
-from gtts import gTTS
+
 import streamlit as st
 import pyttsx3
 import speech_recognition as sr
@@ -9,20 +9,16 @@ from fpdf import FPDF
 import datetime
 import time
 import os
-import uuid
 
 WAKE_WORDS = ["present", "yes", "here", "i am here", "yessir", "yep", "yup", "hai sir"]
 
 # Function to speak text using pyttsx3
 def speak(text):
-    tts = gTTS(text)
-    filename = f"temp_{uuid.uuid4().hex}.mp3"
-    tts.save(filename)
-    audio_file = open(filename, "rb")
-    audio_bytes = audio_file.read()
-    st.audio(audio_bytes, format='audio/mp3')
-    audio_file.close()
-    os.remove(filename)
+    print(f"[🗣 Speaking]: {text}")
+    engine = pyttsx3.init()
+    engine.say(text)
+    engine.runAndWait()
+    time.sleep(0.3)
 
 # Function to listen and convert speech to text
 def listen():
