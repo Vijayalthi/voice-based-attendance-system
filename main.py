@@ -1,22 +1,19 @@
-import streamlit as st
-import pandas as pd
+# voice_attendance_app.py
 from gtts import gTTS
+import streamlit as st
+import pyttsx3
 import speech_recognition as sr
+import pandas as pd
 from fuzzywuzzy import fuzz
+from fpdf import FPDF
+import datetime
 import time
 import os
 import uuid
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
-from io import BytesIO
 
-# Set Streamlit page config
-st.set_page_config(page_title="Voice-Based Attendance", layout="centered")
+WAKE_WORDS = ["present", "yes", "here", "i am here", "yessir", "yep", "yup", "hai sir"]
 
-# Define wake words
-WAKE_WORDS = ["present", "yes", "here", "i am here", "yes sir"]
-
-# Function to speak using gTTS and play in Streamlit
+# Function to speak text using pyttsx3
 def speak(text):
     tts = gTTS(text)
     filename = f"temp_{uuid.uuid4().hex}.mp3"
@@ -27,94 +24,127 @@ def speak(text):
     audio_file.close()
     os.remove(filename)
 
-# Speech recognition function
-def recognize_speech(timeout=3):
+# Function to listen and convert speech to text
+def listen():
     recognizer = sr.Recognizer()
     with sr.Microphone() as source:
+        recognizer.adjust_for_ambient_noise(source, duration=0.3)
+        print("🎧 Listening...")
         try:
-            audio = recognizer.listen(source, timeout=timeout)
-            response = recognizer.recognize_google(audio).lower()
-            return response
-        except (sr.UnknownValueError, sr.WaitTimeoutError, sr.RequestError):
-            return ""
+            audio = recognizer.listen(source, timeout=5, phrase_time_limit=4)
+            response = recognizer.recognize_google(audio)
+            print(f"✅ Heard: {response}")
+            return response.lower()
+        except sr.WaitTimeoutError:
+            print("⏳ No response (timeout)")
+        except sr.UnknownValueError:
+            print("❓ Could not understand audio")
+        except sr.RequestError:
+            print("⚠ Could not connect to speech recognition service")
+        return ""
 
-# Attendance-taking function
-def take_attendance(df, subject_name, date_input):
-    speak("Attention students! The roll call is about to begin. Please respond with Present.")
-    time.sleep(1)
+# Detect if wake word is in response
+def detect_wake_word(text):
+    text = text.lower()
+    for word in WAKE_WORDS:
+        if word in text or fuzz.partial_ratio(word, text) > 85:
+            return True
+    return False
 
-    for index, row in df.iterrows():
-        roll = row["roll"]
-        name = row["name"]
-        text_to_speak = f"Roll number {roll}: {name}"
-        st.markdown(f"### 🔊 {text_to_speak}")
-        speak(text_to_speak)
-
-        response = recognize_speech(timeout=3)
-        matched = any(fuzz.ratio(response, wake) > 80 for wake in WAKE_WORDS)
-
-        if matched:
-            df.at[index, "status"] = "Present"
-        else:
-            df.at[index, "status"] = "Absent"
-
-        time.sleep(0.5)
-
-    speak("Attendance completed.")
-    return df
-
-# PDF generator
+# Generate PDF attendance report
 def generate_pdf(df, subject, date):
-    buffer = BytesIO()
-    c = canvas.Canvas(buffer, pagesize=letter)
-    width, height = letter
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(0, 10, f"Attendance Report for {subject} - {date}", ln=True, align='C')
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(40, 10, "Roll No.", 1)
+    pdf.cell(80, 10, "Name", 1)
+    pdf.cell(40, 10, "Status", 1)
+    pdf.ln()
 
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(200, height - 40, "Attendance Report")
-    c.setFont("Helvetica", 12)
-    c.drawString(50, height - 70, f"Subject: {subject}")
-    c.drawString(350, height - 70, f"Date: {date}")
+    pdf.set_font("Arial", '', 12)
+    for index, row in df.iterrows():
+        pdf.cell(40, 10, str(row["roll_no"]), 1)
+        pdf.cell(80, 10, row["name"], 1)
+        pdf.cell(40, 10, row["status"], 1)
+        pdf.ln()
 
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(50, height - 100, "Roll")
-    c.drawString(150, height - 100, "Name")
-    c.drawString(400, height - 100, "Status")
-
-    y = height - 120
-    for _, row in df.iterrows():
-        c.setFont("Helvetica", 12)
-        c.drawString(50, y, str(row["roll"]))
-        c.drawString(150, y, row["name"])
-        c.drawString(400, y, row["status"])
-        y -= 20
-        if y < 50:
-            c.showPage()
-            y = height - 50
-
-    c.save()
-    buffer.seek(0)
-    return buffer
+    filename = f"Attendance_{subject}_{date}.pdf".replace(" ", "")
+    filepath = os.path.join("generated_reports", filename)
+    os.makedirs("generated_reports", exist_ok=True)
+    pdf.output(filepath)
+    return filepath
 
 # Streamlit UI
-st.title("🎤 Voice-Based Attendance System")
+st.title("🎙 Voice-Based Attendance System")
 
-uploaded_file = st.file_uploader("Upload student list CSV", type="csv")
-
-if uploaded_file:
-    df = pd.read_csv(uploaded_file)
-    if "status" not in df.columns:
+# Upload CSV
+uploaded_file = st.file_uploader("Upload student list CSV (with roll_no, name columns)", type=["csv"])
+if uploaded_file is not None:
+    try:
+        df = pd.read_csv(uploaded_file)
+        if "roll_no" not in df.columns or "name" not in df.columns:
+            st.error("CSV must contain 'roll_no' and 'name' columns")
+            st.stop()
         df["status"] = "Absent"
+    except Exception as e:
+        st.error(f"❌ Error reading uploaded CSV: {e}")
+        st.stop()
+else:
+    st.warning("Please upload a student list CSV file to begin.")
+    st.stop()
 
-    subject = st.text_input("Enter Subject Name")
-    date_input = st.date_input("Select Date")
+# Inputs
+subject = st.text_input("📘 Enter subject name:", "")
+date_input = st.text_input("📅 Enter date (YYYY-MM-DD):", "")
+today_str = datetime.date.today().strftime("%Y-%m-%d")
+date = date_input.strip() if date_input.strip() else today_str
 
-    if st.button("📣 Start Attendance"):
-        updated_df = take_attendance(df.copy(), subject, date_input)
-        st.success("✅ Attendance complete!")
+if st.button("Start Attendance"):
+    if not subject.strip():
+        st.error("Please enter a subject name.")
+        st.stop()
 
-        # Show updated table
-        st.dataframe(updated_df)
+    # Announce attendance
+    announce = f"Attention students. The attendance for subject {subject} is being taken. Respond when you hear your name."
+    speak(announce)
 
-        # Generate and offer PDF download
-        pdf_data = generate_pdf(updated_df, subject, str(date_input))
-        st.download_button("📄 Download Attendance PDF", data=pdf_data, file_name="attendance.pdf", mime="application/pdf")
+    st.write("📚 Attendance in progress... (check terminal for audio interaction)")
+
+    placeholder = st.empty()  # UI placeholder to show current roll number being called
+
+    for index, row in df.iterrows():
+        roll = row["roll_no"]
+        name = row["name"]
+
+        placeholder.markdown(f"### 🎙 Calling Roll Number {roll}, {name}...")
+        speak(f"Roll number {roll}, {name}, are you present?")
+        response = listen()
+
+        if detect_wake_word(response):
+            df.at[index, "status"] = "Present"
+            speak("Marked present.")
+        else:
+            speak("Marked absent.")
+
+        time.sleep(0.5)
+        placeholder.empty()
+
+    # Generate PDF
+    filepath = generate_pdf(df, subject, date)
+
+    # Summary
+    present = df[df["status"] == "Present"]
+    absent = df[df["status"] == "Absent"]
+
+    st.success("✅ Attendance Completed!")
+    st.write(f"Present: {len(present)}")
+    st.write(f"Absent: {len(absent)}")
+
+    if not absent.empty:
+        st.markdown("### 🚫 Absentees:")
+        st.table(absent[["roll_no", "name"]])
+
+    with open(filepath, "rb") as f:
+        st.download_button("📄 Download Attendance PDF", f, file_name=os.path.basename(filepath), mime="application/pdf")
