@@ -5,3 +5,4 @@ SpeechRecognition
 fuzzywuzzy
 python-Levenshtein
 reportlab
+fpdf
