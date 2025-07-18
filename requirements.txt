@@ -1,0 +1,7 @@
+streamlit
+pandas
+pyttsx3
+SpeechRecognition
+fuzzywuzzy
+python-Levenshtein
+reportlab
