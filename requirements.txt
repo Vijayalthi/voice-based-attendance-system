@@ -1,8 +1,8 @@
-streamlit
+gradio
 pandas
-pyttsx3
-SpeechRecognition
 fuzzywuzzy
 python-Levenshtein
+pyttsx3
+SpeechRecognition
 reportlab
-fpdf
+pydub
